@@ -11,7 +11,6 @@ let successfulHits = 0;
 
 // Audio Analysis
 let analyzer;
-let audioContent;
 let meydaAnalyzer;
 
 // Score Calculation
@@ -26,40 +25,107 @@ function calculateScore(accuracy) {
     return 'E';
 }
 
-// Audio Setup
-document.getElementById('fileInput').addEventListener('change', async (e) => {
-    const file = e.target.files[0];
-    if (!file) return;
+// Wait for DOM to be ready
+document.addEventListener('DOMContentLoaded', () => {
+    initializeGame();
+});
 
-    document.getElementById('status').textContent = 'Loading...';
+function initializeGame() {
+    // Audio Setup
+    document.getElementById('fileInput').addEventListener('change', (e) => {
+        const file = e.target.files[0];
+        if (!file) return;
 
+        // Check file type
+        const fileType = file.type;
+        if (!fileType.includes('audio/mpeg') && !fileType.includes('audio/wav') && 
+            !fileType.includes('audio/mp3') && !fileType.includes('audio/wave')) {
+            document.getElementById('status').textContent = 'Please upload MP3 or WAV only';
+            return;
+        }
+
+        document.getElementById('status').textContent = 'Loading...';
+
+        // Handle async operations separately
+        loadAudioFile(file);
+    });
+
+    // Play Btn
+    document.getElementById('playBtn').addEventListener('click', async () => {
+        if (!audioLoaded) return;
+        
+        await Tone.start();
+        player.start();
+        
+        isPlaying = true;
+        document.getElementById('status').textContent = 'Playing';
+        document.getElementById('playBtn').disabled = true;
+        document.getElementById('resetBtn').disabled = false;
+    });
+
+    // Reset Btn
+    document.getElementById('resetBtn').addEventListener('click', () => {
+        if (player) {
+            player.stop();
+        }
+        
+        isPlaying = false;
+        
+        // Reset all game state
+        score = 0;
+        totalHits = 0;
+        successfulHits = 0;
+        lastBeatTime = 0;
+        particles = [];
+        beats = [];
+        
+        // Reset beat times for BPM
+        if (typeof beatTimes !== 'undefined') {
+            beatTimes = [];
+        }
+        
+        // Reset UI
+        document.getElementById('status').textContent = 'Ready!';
+        document.getElementById('accuracy').textContent = '0%';
+        document.getElementById('score').textContent = '--';
+        document.getElementById('bpm').textContent = '--';
+        document.getElementById('energy').textContent = '--';
+        document.getElementById('playBtn').disabled = false;
+        document.getElementById('resetBtn').disabled = true;
+        
+        // Clear the persistent background layer
+        if (typeof backgroundLayer !== 'undefined') {
+            backgroundLayer.background(10, 20, 5);
+        }
+    });
+}
+
+async function loadAudioFile(file) {
     try {
+        // Clean up existing player
         if (player) {
             player.dispose();
         }
-
-        const arrayBuffer = await file.arrayBuffer();
-        const audioBuffer = await Tone.context.decodeAudioData(arrayBuffer);
-
-        player = new Tone.Player(audioBuffer).toDestination();
-
-        if (!audioContext) {
-            audioContext = Tone.context.rawContext;
-        }
-
+        
         if (meydaAnalyzer) {
             meydaAnalyzer.stop();
         }
 
-        meydaAnalyzer = Meyda.createMeydaAnalyzer({
-            audioContext: audioContext,
-            source: player._buffer._buffer,
-            bufferSize: 512,
-            featureExtractors: ['energy', 'rms', 'zcr'],
-            callback: (features) => {
+        // Load audio into Tone.js
+        const arrayBuffer = await file.arrayBuffer();
+        const audioBuffer = await Tone.context.decodeAudioData(arrayBuffer);
 
-            }
-        });
+        // Create Tone.js player
+        player = new Tone.Player(audioBuffer).toDestination();
+
+        // Create analyzer that connects to Tone's context
+        analyzer = new Tone.Analyser('waveform', 256);
+        player.connect(analyzer);
+        
+        // Create frequency analyzer for bass/percussion detection
+        const fft = new Tone.FFT(512);
+        player.connect(fft);
+        window.fftAnalyzer = fft; // Make it globally accessible
 
         audioLoaded = true;
         document.getElementById('status').textContent = 'Ready!';
@@ -68,40 +134,7 @@ document.getElementById('fileInput').addEventListener('change', async (e) => {
         console.error('Error loading audio: ', error);
         document.getElementById('status').textContent = 'Error loading audio!';
     }
-});
-
-// Play Btn
-document.getElementById('playBtn').addEventListener('click', async () => {
-    if (!audioLoaded) return;
-    
-    await Tone.start();
-    player.start();
-    
-    if (meydaAnalyzer) {
-        meydaAnalyzer.start();
-    }
-    
-    isPlaying = true;
-    document.getElementById('status').textContent = 'Playing';
-    document.getElementById('playBtn').disabled = true;
-    document.getElementById('pauseBtn').disabled = false;
-});
-
-// Pause Btn
-document.getElementById('pauseBtn').addEventListener('click', () => {
-    if (player) {
-        player.stop();
-    }
-    
-    if (meydaAnalyzer) {
-        meydaAnalyzer.stop();
-    }
-    
-    isPlaying = false;
-    document.getElementById('status').textContent = 'Paused';
-    document.getElementById('playBtn').disabled = false;
-    document.getElementById('pauseBtn').disabled = true;
-});
+}
 
 // Key Inputs
 const validKeys = ['D', 'F', 'J', 'K'];
@@ -133,7 +166,9 @@ document.addEventListener('keydown', (e) => {
         document.getElementById('accuracy').textContent = accuracy + '%';
         document.getElementById('score').textContent = scoreRank;
 
-        createSpellParticles(key);
+        if (typeof createSpellParticles === 'function') {
+            createSpellParticles(key);
+        }
 
         setTimeout(() => {
             if (rune) {
