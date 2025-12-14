@@ -1,6 +1,7 @@
 let p5Canvas;
 let backgroundLayer;
 let beatTimes = []; // Track beat timestamps for BPM calculation
+let bubbles = [];
 
 function setup() {
     p5Canvas = createCanvas(windowWidth, windowHeight);
@@ -17,6 +18,26 @@ function draw() {
     // Display the persistent background
     image(backgroundLayer, 0, 0);
     
+    // Check for missed notes
+    if (typeof checkMissedNotes === 'function') {
+        checkMissedNotes();
+    }
+    
+    // Spawn bubbles randomly
+    if (isPlaying && random() < 0.1) {
+        bubbles.push(new Bubble(random(width), height));
+    }
+    
+    // Update & Draw Bubbles
+    for (let i = bubbles.length - 1; i >= 0; i--) {
+        bubbles[i].update();
+        bubbles[i].display();
+
+        if (bubbles[i].isDead()) {
+            bubbles.splice(i, 1);
+        }
+    }
+    
     // Update & Draw Particles
     for (let i = particles.length - 1; i >= 0; i--) {
         particles[i].update();
@@ -25,6 +46,12 @@ function draw() {
         if (particles[i].isDead()) {
             particles.splice(i, 1);
         }
+    }
+
+    // Draw Beatmap (centered)
+    if (isPlaying && beatmapRenderer && player) {
+        const currentTime = player.now() * 1000; // Convert to milliseconds
+        beatmapRenderer.draw(currentTime);
     }
 
     // Draw Beats - using Tone.js analyzer
@@ -49,6 +76,7 @@ function draw() {
 
             // Track beat times for BPM calculation
             beatTimes.push(Date.now());
+            
             // Keep only last 10 beats for average
             if (beatTimes.length > 10) {
                 beatTimes.shift();
@@ -63,6 +91,11 @@ function draw() {
                 let avgInterval = intervals.reduce((a, b) => a + b) / intervals.length;
                 let bpm = Math.round(60000 / avgInterval); // Convert ms to BPM
                 document.getElementById('bpm').textContent = bpm;
+                
+                // Update current BPM for beatmap generation
+                if (typeof currentBPM !== 'undefined') {
+                    currentBPM = bpm;
+                }
             }
 
             // Create beat particles at a DIFFERENT random position
@@ -70,7 +103,7 @@ function draw() {
             
             // Draw beat ring to persistent background layer
             backgroundLayer.noFill();
-            backgroundLayer.stroke(280, 80, 100, 30);
+            backgroundLayer.stroke(103, 100, 100, 30);
             backgroundLayer.strokeWeight(3);
             backgroundLayer.circle(beatX, beatY, 50);
         }
@@ -79,14 +112,14 @@ function draw() {
     // Clean Old Beats
     beats = beats.filter(b => Date.now() - b.time < 500);
 
-    // Draw Beat Indicators
+    // Draw Beat Indicators (background ambience)
     beats.forEach(beat => {
         const age = Date.now() - beat.time;
         const alpha = map(age, 0, 500, 100, 0);
         const size = map(age, 0, 500, 10, 50);
 
         noFill();
-        stroke(280, 80, 100, alpha);
+        stroke(103, 100, 100, alpha);
         strokeWeight(3);
         circle(beat.x, beat.y, size);
     });
@@ -101,6 +134,11 @@ function windowResized() {
     backgroundLayer.colorMode(HSB, 360, 100, 100, 100);
     backgroundLayer.background(10, 20, 5);
     backgroundLayer.image(oldLayer, 0, 0);
+    
+    // Resize beatmap renderer
+    if (beatmapRenderer) {
+        beatmapRenderer.resize();
+    }
 }
 
 class Particle {
@@ -197,6 +235,49 @@ function createGeyser(startX, startY, hue) {
 
 function createBeatParticles(x, y) {
     for (let i = 0; i < 10; i++) {
-        particles.push(new Particle(x, y, 200));
+        particles.push(new Particle(x, y, 30));
+    }
+}
+
+class Bubble {
+    constructor(x, y) {
+        this.x = x;
+        this.y = y;
+        this.size = random(20, 60);
+        this.speed = random(1, 3);
+        this.wobble = random(0, TWO_PI);
+        this.wobbleSpeed = random(0.02, 0.05);
+        this.alpha = 60;
+    }
+
+    update() {
+        this.y -= this.speed;
+        this.wobble += this.wobbleSpeed;
+        this.x += sin(this.wobble) * 0.5;
+    }
+
+    display() {
+        push();
+        noStroke();
+        
+        // Bubble body with gradient effect
+        fill(200, 30, 90, this.alpha);
+        circle(this.x, this.y, this.size);
+        
+        // Inner highlight
+        fill(200, 10, 100, this.alpha * 0.5);
+        circle(this.x - this.size * 0.2, this.y - this.size * 0.2, this.size * 0.3);
+        
+        // Outline
+        noFill();
+        stroke(200, 50, 100, this.alpha * 0.8);
+        strokeWeight(2);
+        circle(this.x, this.y, this.size);
+        
+        pop();
+    }
+
+    isDead() {
+        return this.y < -this.size;
     }
 }
